@@ -256,6 +256,7 @@ user_input_loop_2:
 		anl	a,#004h				; Clear upper 4 bits and lower 2 bits
 		jz	user_input_loop_2		; button p3.4 not pressed so no user input
 		
+		clr	tr0
 		mov	tl0,#000h
 		mov	th0,#000h
 		setb	tr0
@@ -588,6 +589,7 @@ user_alarm_timer_intr:
 		cjne	a,#21,user_alarm_timer_intr_reload 	; Do we have got almost a second? (counted until 0.98304.. sec?) 
 								; (16.777216Mhz/12)^-1=715,255737ns *2^16 = 0.046875s (per timer interupt)
 								;  
+		clr	tr0
 		mov	tl0,#0AAh				; 2^16 - 21845.333 instructions = 43691 instructions
 		mov	th0,#0ABh
 		setb	TR0
@@ -616,6 +618,7 @@ user_alarm_timer_intr_exit:
 		reti
 
 user_alarm_timer_intr_reload:
+		clr	TR0
 		mov	tl0,#000h		; Clear
 		mov	th0,#000h
 		setb	TR0			; Timer 0 on
@@ -1287,6 +1290,7 @@ buzzer_music:
 	mov	a,tmod
 	orl	a,#00000001b
 	mov	tmod,a
+	clr	tr1
 	mov	tl1,#000h
 	mov	th1,#000h
 	setb	tr1			; We can now send assymetric music out
