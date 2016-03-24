@@ -14,6 +14,14 @@ $LIST
 ;
 ; We use the subsystems: 'user' and 'led_api' 
 ;
+; SETTINGS:
+;
+;	Pleas set the wright options for compiling
+
+	DIL_ADuC832	SET	1 	; Set this if we use the DIL variant of the ADuC832
+	LCD		SET	0	; Set this if we use LCD and Buttons for comunication
+					; else we use USB for comunication 
+;
 ;********************************************************************************************** 
 
 ;********************************************************************************************** 
@@ -179,7 +187,8 @@ user_init:
 ; function: user_input
 ; Gets the user input and stores this
 ;
-; Input: From buttons and DIP-switchs
+; Input: From buttons and DIP-switchs or from USB
+;	 SEE SETTINGS
 ;
 ; Output: Text to screen
 ;
@@ -193,6 +202,9 @@ user_init:
 ;	user_input_text_2
 ;
 ;********************************************************************************************** 
+
+; LCD SECTION
+if LCD = 1
 
 user_input:	
 		push	acc
@@ -321,6 +333,17 @@ user_input_text_2:
 		db	'    min. Druk 3'
 		db	000h				; End
 
+else
+; USB Section
+
+user_input:	
+		push	acc
+		push	psw
+		
+		pop	psw
+		pop	acc
+		ret
+endif
 ;********************************************************************************************** 
 ; Stijn Goethals and Nele Annaert (C) 2016
 ; function: user_alarm_init
