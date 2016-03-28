@@ -18,20 +18,29 @@ $LIST
 ;
 ;	Pleas set the wright options for compiling
 
-	DIL_ADuC832	SET	1 	; Set this if we use the DIL variant of the ADuC832
+	DIL_ADuC832	SET	0 	; Set this if we use the DIL variant of the ADuC832
+;						If DIL is set buzzer on port_map.2 
+;						else Buzzer on buzzer jumper
+;
 	LCD		SET	0	; Set this if we use LCD and Buttons for comunication
-					; else we use USB for comunication 
+	USB		SET	0	; Set this if we use USB for comunication 
+;
+;	YOU CAN CHANGE THE PORT IN OPTION port_map 
 ;
 ;********************************************************************************************** 
 
 ;********************************************************************************************** 
 ; Memory map:
-;	Update LCD flag:		Every second
+;	Update input flag:		Every second
 ;		000h
 ;	Update LED flag;		Every minute
 ;		001h
 ;	Can we use the buzzer
 ;		002h
+;	Are we using the usb
+;		003h
+;	Are we in the config menu of the usb
+;		004h
 ;	Examentime to go in min:
 ;		030h
 ;	Value of how many times timer 1 has interupted
@@ -55,9 +64,11 @@ led_count	equ	030d			; Give the number of APA102 led's in the strip max 48 for t
 port_map	equ	p3			; Give the port we need to map 
 
 ;Defenition of the memory map:
-LCD_flag		bit	000h
+input_flag		bit	000h
 LED_flag		bit	001h
 Buz_flag	 	bit	002h
+USB_flag		bit	003h
+USB_flag_config		bit	004h
 examen_time		equ	030h
 timer1_count	 	equ	032h
 timer0_count		equ	033h
@@ -72,37 +83,35 @@ LED_data_offset		equ	040h
 		org	000Bh			; Interupt timer 0
 		ljmp	user_alarm_timer_intr
 
-		org	001Bh			; Buzzer music
-		ljmp	buzzer_intr
-
+		org	001Bh			; Interupt timer 1
+		ljmp	buzzer_intr		; Buzzer music
+if USB=1
+		org	023h			; user_input_USB_intr interupt
+		ljmp	user_input_USB_intr
+endif
 ; Init of the main program
 main_init:	mov	sp,#stack_init
-		mov	pllcon,#000h		; Clk on 16MHz
-		;lcall	user_alarm_data_loop
+		mov	pllcon,#000h		; Clk on 16MH
+		
 		lcall	led_api_init		; Init the led's
-		;lcall   APA102_test_led_strip	; APA102_test programe of led's
+		lcall   APA102_test_led_strip	; APA102_test programe of led's
 		
 		lcall	user_init		; Init the user interface
-		
-		
-		lcall	user_alarm_init		; Init the alarms
-		setb	ea
-		
+		lcall	buzzer_music_init	; Init the buzzer
 		lcall	buzzer_music
+
 		sjmp	main_loop		; Loop
 		
 		
 ; The main loop		
 main_loop:	
-		
 		lcall	user_input		; Get the user input and save this
-
-		jnb	LED_flag,main_loop
-
+		
+		jnb	LED_flag,main_loop	; Check if we need to  update the led's
 		lcall	user_alarm		; Calculates the led data and set the buzzer on and off if needed
-
 		lcall	led_api_out		; Sends out the calculated data 
 		clr	LED_flag
+		
 		sjmp 	main_loop
 
 ;********************************************************************************************** 
@@ -117,8 +126,15 @@ main_loop:
 ;	Doesn't break acc
 ;	Interupts allowed
 ; 
-; 	user_init: Makes the user interface ready
-; 	user_input: Stores the user input
+; 	user_init: Makes the user USB and LCD interface ready
+; 	user_init_LCD: Makes the user LCD interface ready
+; 	user_init_USB: Makes the user USB interface ready
+; 	user_input: Stores the user input from USB and LCD
+; 	user_input_LCD: Stores the user input from LCD
+; 	user_input_USB: Stores the user input from USB
+;	user_input_USB_d_out: Print a decimal out to the terminal
+;	user_input_USB_intr: Gets the user input and stores this
+;	user_input_USB_INBYTE: Gets from the terminal a number in format xxx (000-255) and stores this in a 
 ;	user_alarm_init: Init of the user alarm
 ;	user_alarm: Sends the alarm to the user
 ; 	user_alarm_timer_init: Decrease every minute the registers 030h and 031h. Makes use of timer 0
@@ -126,15 +142,41 @@ main_loop:
 ;
 ; Internal functions:
 ;
-; 	user_input:
-;		user_input_loop_1
-;		user_input_loop_2
+;	user_input:
 ;		user_input_exit
-;		user_input_no_button
-;		user_input_d_out
-;		user_input_text_0
-;		user_input_text_1
-;		user_input_text_2
+;
+; 	user_input_LCD:
+;		user_input_LCD_loop_1
+;		user_input_LCD_loop_2
+;		user_input_LCD_exit
+;		user_input_LCD_no_button
+;		user_input_LCD_d_out
+;		user_input_LCD_text_0
+;		user_input_LCD_text_1
+;		user_input_LCD_text_2
+;
+;	user_input_USB:
+;		user_input_USB_exit
+;		user_input_USB_text_0
+;		user_input_USB_text_1
+;		user_input_USB_text_2
+;		user_input_USB_text_3
+;
+;	user_input_USB_intr:
+;		user_input_USB_intr_e
+;		user_input_USB_intr_a
+;		user_input_USB_intr_exit
+;		user_input_USB_intr_text_0
+;		user_input_USB_intr_text_1
+;		user_input_USB_intr_text_2
+;		user_input_USB_intr_text_3
+;		user_input_USB_intr_text_4
+;
+;	user_input_USB_INBYTE:
+;		user_input_USB_INBYTE_10
+;		user_input_USB_INBYTE_0
+;		user_input_USB_INBYTE_100
+;		user_input_USB_INBYTE_exit
 ;
 ; 	user_alarm:
 ;		user_alarm_time_0
@@ -168,18 +210,20 @@ main_loop:
 ;********************************************************************************************** 
 
 user_init:	
-		setb	Buz_flag	; Mute the buzzer 
-		lcall	initlcd		; lcd init
-		lcall	lcdlighton	; lcdlight on
-		mov	a,#00ch		; clear screen and cursor on posistion 00
-		lcall	outcharlcd
-		mov	a,#013h		; cursor off
-		lcall	outcharlcd
-		clr	Buz_flag
+
 		
+if LCD = 1
+		lcall	user_init_LCD
+endif
+
+if USB = 1
+		lcall	user_init_USB
+endif
+
 		mov	examen_time,#099
 		mov	total_examen_time,#099
 		mov	total_alarm_time,#030
+		lcall	user_alarm_init		; Init the alarms
 		ret
 
 ;********************************************************************************************** 
@@ -193,43 +237,97 @@ user_init:
 ; Output: Text to screen
 ;
 ; Internal functions:
-;	user_input_loop_1
-;	user_input_loop_2
-;	user_input_no_button
-;	user_input_d_out
-;	user_input_text_0
-;	user_input_text_1
-;	user_input_text_2
+;	user_input_exit
+;********************************************************************************************** 
+
+user_input:	
+		jnb	input_flag,user_input_exit 		; update only 1 time per sec
+		clr	input_flag
+if LCD = 1
+		lcall	user_input_LCD
+endif
+
+if USB = 1
+		lcall	user_input_USB
+endif
+
+user_input_exit:
+		ret
+;***************
+;* LCD SECTION *
+;***************
+if LCD = 1
+
+;********************************************************************************************** 
+; Stijn Goethals and Nele Annaert (C) 2016
+; function: user_init_LCD
+; Makes the user LCD interface ready
+;
+; Input: none
+;
+; Output: clears the screen
 ;
 ;********************************************************************************************** 
 
-; LCD SECTION
-if LCD = 1
+user_init_LCD:	
+		push	acc
+		setb	Buz_flag	; Mute the buzzer 
+		lcall	initlcd		; lcd init
+		lcall	lcdlighton	; lcdlight on
+		mov	a,#00ch		; clear screen and cursor on posistion 00
+		lcall	outcharlcd
+		mov	a,#013h		; cursor off
+		lcall	outcharlcd
+		clr	Buz_flag
+		
+		mov	examen_time,#099
+		mov	total_examen_time,#099
+		mov	total_alarm_time,#030
+		pop	acc
+		ret
 
-user_input:	
+;********************************************************************************************** 
+; Stijn Goethals and Nele Annaert (C) 2016
+; function: user_input_LCD
+; Gets the user input and stores this
+;
+; Input: From buttons and DIP-switchs
+;	 SEE SETTINGS
+;
+; Output: Text to screen
+;
+; Internal functions:
+;	user_input_LCD_loop_1
+;	user_input_LCD_loop_2
+;	user_input_LCD_no_button
+;	user_input_LCD_d_out
+;	user_input_LCD_text_0
+;	user_input_LCD_text_1
+;	user_input_LCD_text_2
+;
+;********************************************************************************************** 
+
+user_input_LCD:	
 		push	acc
 		push	psw
 		setb	psw.3
-
-		jnb	LCD_flag,user_input_exit 		; update only 1 time per sec
-		clr	LCD_flag
 		
 		setb	Buz_flag			; Mute the buzzer 
 		mov	a,#00ch				; Clear screen and move cursor to 00
 		lcall	outcharlcd
 		mov	a,#013h				; Cursor off
 		lcall	outcharlcd
-		mov	dptr,#user_input_text_0		; text_0 out to screen
+		mov	dptr,#user_input_LCD_text_0		; text_0 out to screen
 		lcall	outmsgalcd
 		mov	b,examen_time
-		lcall	user_input_d_out
+		lcall	user_input_LCD_d_out
 		clr	Buz_flag
 		
 		mov	a,p3				; Get button (p3.7 - p3.4)
 		cpl	a				; Inversion for active high
 		swap	a				; Put data a in a.4 until a.0
 		anl	a,#001h				; Clear upper 7 bits
-		jz	user_input_no_button		; button p3.4 not pressed so no user input
+		jz	user_input_LCD_no_button		; button p3.4 not pressed so no user input
 
 		clr	tr0				; Stop the timer0
 		setb	Buz_flag			; Mute the buzzer 
@@ -237,36 +335,36 @@ user_input:
 		lcall	outcharlcd
 		mov	a,#013h				; Cursor off
 		lcall	outcharlcd
-		mov	dptr,#user_input_text_1		; text_1 out to screen
+		mov	dptr,#user_input_LCD_text_1		; text_1 out to screen
 		lcall	outmsgalcd
 
-user_input_loop_1:
+user_input_LCD_loop_1:
 		mov	b,p0
 		mov	examen_time,b			; Get examen time
 		mov	total_examen_time,b
-		lcall	user_input_d_out
+		lcall	user_input_LCD_d_out
 		mov	a,p3				; Get button (p3.7 - p3.4)
 		cpl	a				; Inversion for active high
 		swap	a				; Put data a in a.4 until a.0
 		anl	a,#002h				; Clear upper 6 bits and bit 0		
-		jz	user_input_loop_1		; button p3.5 not pressed so no user input
+		jz	user_input_LCD_loop_1		; button p3.5 not pressed so no user input
 		
 		mov	a,#00ch				; Clear screen and move cursor to 00
 		lcall	outcharlcd
 		mov	a,#013h				; Cursor off
 		lcall	outcharlcd
-		mov	dptr,#user_input_text_2		; text_1 out to screen
+		mov	dptr,#user_input_LCD_text_2		; text_1 out to screen
 		lcall	outmsgalcd
 
-user_input_loop_2:
+user_input_LCD_loop_2:
 		mov	b,p0				; Get alert time
 		mov	total_alarm_time,b
-		lcall	user_input_d_out
+		lcall	user_input_LCD_d_out
 		mov	a,p3				; Get button (p3.7 - p3.4)
 		cpl	a				; Inversion for active high
 		swap	a				; Put data a in a.4 until a.0
 		anl	a,#004h				; Clear upper 4 bits and lower 2 bits
-		jz	user_input_loop_2		; button p3.4 not pressed so no user input
+		jz	user_input_LCD_loop_2		; button p3.4 not pressed so no user input
 		
 		clr	tr0
 		mov	tl0,#000h
@@ -274,21 +372,21 @@ user_input_loop_2:
 		setb	tr0
 		clr	Buz_flag
 		setb	LED_flag			; Update the led's
-		sjmp 	user_input_exit
+		sjmp 	user_input_LCD_exit
 
-; Exit the user_input function
-user_input_exit:
+; Exit the user_input_LCD function
+user_input_LCD_exit:
 		
 		pop	psw
 		pop	acc
 		ret
 
 ; No buttons pressed so stop
-user_input_no_button:
-		sjmp	user_input_exit
+user_input_LCD_no_button:
+		sjmp	user_input_LCD_exit
 ; Print a decimal out on second line of screen
 ; decimal is send trough by b
-user_input_d_out:
+user_input_LCD_d_out:
 		push	acc
 		
 		mov	a,#040h 			; Cursor on second line first posistion
@@ -315,35 +413,306 @@ user_input_d_out:
 		pop	acc
 		ret	
 
-user_input_text_0:
+user_input_LCD_text_0:
 		db	'Tijd te gaan:'
 		db	0C0h				; Next line
 		db	'    min. Druk 1'
 		db	000h				; End
 
-user_input_text_1:
+user_input_LCD_text_1:
 		db	'Geef examentijd:'
 		db	0C0h				; Next line
 		db	'    min. Druk 2'
 		db	000h				; End
 		
-user_input_text_2:
+user_input_LCD_text_2:
 		db	'Geef alarmtijd:'
 		db	0C0h				; Next line
 		db	'    min. Druk 3'
 		db	000h				; End
 
-else
-; USB Section
+endif
+;***************
+;* USB Section *
+;***************
+if USB = 1
 
-user_input:	
+;********************************************************************************************** 
+; Stijn Goethals and Nele Annaert (C) 2016
+; function: user_init_USB
+; Makes the user USB interface ready
+;
+; Input: none
+;
+; Output: clears the screen
+;
+;**********************************************************************************************
+ 
+user_init_USB:	
+		lcall	initsio			; Init of the user_input_USB_intr
+		clr	USB_flag
+		clr	USB_flag_config
+		setb	es
+		setb	ea
+		ret
+
+;********************************************************************************************** 
+; Stijn Goethals and Nele Annaert (C) 2016
+; function: user_input_USB
+; Prints the time of to the terminal
+;
+; Input: From none
+;
+; Output: Text to screen
+;
+; Internal functions:
+;	user_input_USB_exit
+;	user_input_USB_text_0
+;	user_input_USB_text_1
+;	user_input_USB_text_2
+;	user_input_USB_text_3
+;
+;**********************************************************************************************
+
+user_input_USB: 
 		push	acc
-		push	psw
+		jb	USB_flag,user_input_USB_exit
+		jb	USB_flag_config,user_input_USB_exit
 		
-		pop	psw
+		setb	USB_flag
+		
+		mov	dptr,#user_input_USB_text_0
+		lcall	outmsga
+
+		mov	a,examen_time
+		lcall	user_input_USB_d_out
+		
+		mov	dptr,#user_input_USB_text_1
+		lcall	outmsga
+		
+		mov	a,total_examen_time
+		lcall	user_input_USB_d_out
+		
+		mov	dptr,#user_input_USB_text_2
+		lcall	outmsga	
+
+		mov	a,total_alarm_time
+		lcall	user_input_USB_d_out
+
+		mov	dptr,#user_input_USB_text_3
+		lcall	outmsga
+
+		clr	USB_flag
+user_input_USB_exit:
 		pop	acc
 		ret
+
+user_input_USB_text_0:
+		db	00ah				; Clear terminal
+		db	'Druk op een toets om de tijd in te stellen.'
+		db	00dh				; Next line
+		db	'Nog: '
+		db	000h				; End
+		
+user_input_USB_text_1:
+		db	' minuten te gaan van de '
+		db	000h
+		
+user_input_USB_text_2:
+		db	' minuten. Alarm gaat af de laatste: '
+		db	000h
+
+user_input_USB_text_3:
+		db	' minuten.'
+		db	000h
+
+;********************************************************************************************** 
+; Stijn Goethals and Nele Annaert (C) 2016
+; function: user_input_USB_d_out
+; Print a decimal out to the terminal
+;
+; Input: a
+;
+; Output: decimal to screen
+;
+;**********************************************************************************************
+
+user_input_USB_d_out:
+		push	acc
+		mov	b,#100				
+		div	ab				; Divide a by 100
+		lcall	outnib				; 100 out
+		mov	a,b				; Put value of p0 in acc
+		mov	b,#10				
+		div	ab				; Divide a by 100
+		lcall	outnib				; 10 out	
+		mov	a,b
+		lcall	outnib				; 1 out
+		pop	acc
+		ret	
+
+;********************************************************************************************** 
+; Stijn Goethals and Nele Annaert (C) 2016
+; function: user_input_USB_intr
+; Gets the user input and stores this
+;
+; Input: From terminal
+;
+; Output: Text to screen
+;
+; Internal functions:
+;	user_input_USB_intr_e
+;	user_input_USB_intr_a
+;	user_input_USB_intr_exit
+;	user_input_USB_intr_text_0
+;	user_input_USB_intr_text_1
+;	user_input_USB_intr_text_2
+;	user_input_USB_intr_text_3
+;	user_input_USB_intr_text_4
+;
+;**********************************************************************************************
+
+user_input_USB_intr:
+		push	acc
+		push	psw
+		clr	ti
+		clr	ri
+		jb	USB_flag,user_input_USB_intr_exit	; Check if we are transmiting, if yes we end the interupt routine
+		setb	USB_flag_config
+		setb	USB_flag
+
+user_input_USB_intr_e:
+		clr	c
+		mov	dptr,#user_input_USB_intr_text_0
+		lcall	outmsga
+		
+		lcall	user_input_USB_INBYTE
+		jc	user_input_USB_intr_e			; Error restart
+		mov	examen_time,a
+		mov	total_examen_time,a
+		
+		mov	dptr,#user_input_USB_intr_text_1
+		lcall	outmsga
+		lcall	user_input_USB_d_out
+		mov	dptr,#user_input_USB_intr_text_2
+		lcall	outmsga
+user_input_USB_intr_a:
+		clr	c
+		mov	dptr,#user_input_USB_intr_text_3
+		lcall	outmsga
+		
+		lcall	user_input_USB_INBYTE
+		jc	user_input_USB_intr_a			; Error restart
+		mov	total_alarm_time,a
+
+		mov	dptr,#user_input_USB_intr_text_1
+		lcall	outmsga
+		lcall	user_input_USB_d_out
+		mov	dptr,#user_input_USB_intr_text_4
+		lcall	outmsga
+				
+		clr	USB_flag
+		clr	USB_flag_config
+
+		clr	tr0
+		mov	tl0,#000h
+		mov	th0,#000h
+		setb	tr0
+user_input_USB_intr_exit:
+
+		pop	psw
+		pop	acc
+		reti
+
+user_input_USB_intr_text_0:
+		db	00ah				; Clear terminal
+		db	'Welkom in het configuratie menu!'
+		db	00ah				; Next line
+		db	'Geef de duur van het examen in (max 255): '
+		db	00ah,000h				; End
+		
+user_input_USB_intr_text_1:
+		db	00ah
+		db	'We hebben '
+		db	000h
+		
+user_input_USB_intr_text_2:
+		db	' minuten ingesteld als de examen tijd.'
+		db	000h
+user_input_USB_intr_text_3:
+		db	00ah
+		db	'Geef nu het alarm tijd (max 255): '
+		db	000h
+user_input_USB_intr_text_4:
+		db	' minuten ingesteld als de alarm tijd.'
+		db	00ah
+		db	'Einde van configuratie menu.'
+		db	00dh,000h
+
+;********************************************************************************************** 
+; Stijn Goethals and Nele Annaert (C) 2016
+; function: user_input_USB_INBYTE
+; Gets from the terminal a number in format xxx (000-255) and stores this in a 
+; binair number in a
+;
+; Input: text form terminal
+;
+; Output: 	cary if error
+;	 	the number a
+;
+; Internal functions:
+;	user_input_USB_INBYTE_10
+;	user_input_USB_INBYTE_0
+;	user_input_USB_INBYTE_100
+;	user_input_USB_INBYTE_exit
+;
+;********************************************************************************************** 
+
+user_input_USB_INBYTE:      
+		push	b
+		lcall	INBUFA		; Wait on the user input
+		
+		dec	r0		; Pointer to the first number
+		mov	a,@r0		; Put het 1 in the acc
+		lcall	LOWUPTR		; Change to UPPERCASE
+		lcall	ASCBINTRANS	; Change ascii to a binair number
+		jc	user_input_USB_INBYTE_exit	;ERROR
+		mov	b,a		; Save number in B
+		
+		dec	r0		; Pointer to the second number
+		mov	a,@r0		; Put het 10 in the acc
+		lcall	LOWUPTR		; Change to UPPERCASE
+		lcall	ASCBINTRANS	; Change ascii to a binair number
+		jc	user_input_USB_INBYTE_exit	;ERROR
+		jz	user_input_USB_INBYTE_0		; We don't need to add
+		mov	r1,a
+		mov	a,b
+user_input_USB_INBYTE_10:
+		add	a,#10
+		djnz	r1,user_input_USB_INBYTE_10
+		mov	b,a
+		
+user_input_USB_INBYTE_0:
+		dec	r0
+		mov	a,@r0		; Put het 10 in the acc
+		lcall	LOWUPTR		; Change to UPPERCASE
+		lcall	ASCBINTRANS	; Change ascii to a binair number
+
+		jc	user_input_USB_INBYTE_exit	;ERROR
+		jz	user_input_USB_INBYTE_exit	; Check if zero
+		mov	r1,a
+		mov	a,b
+user_input_USB_INBYTE_100:
+		add	a,#100
+		djnz	r1,user_input_USB_INBYTE_100
+		mov	b,a
+		
+user_input_USB_INBYTE_exit:
+		mov	a,b
+		pop     b
+		ret
 endif
+
 ;********************************************************************************************** 
 ; Stijn Goethals and Nele Annaert (C) 2016
 ; function: user_alarm_init
@@ -620,7 +989,7 @@ user_alarm_timer_intr:
 
 ; Check if we hava minute
 user_alarm_timer_intr_min:
-		setb	LCD_flag					; Update the lcd 
+		setb	input_flag					; Update the lcd 
 		inc	sec_timer
 		mov	a,sec_timer
 		cjne	a,#060,user_alarm_timer_intr_exit
@@ -1283,7 +1652,7 @@ APA102_0_send_byte_0:
 ;********************************************************************************************** 
 
 buzzer_music_init:
-	lcall	lcdbuzoff
+	lcall	buzzer_off
 	ret
 
 ;********************************************************************************************** 
@@ -1367,7 +1736,11 @@ buzzer_intr_exit:
 ;
 ;********************************************************************************************** 
 buzzer_on:
+if DIL_ADuC832 = 1
+	setb	port_map.2
+else
 	lcall	lcdbuzon
+endif
 	ret
 
 ;********************************************************************************************** 
@@ -1381,7 +1754,11 @@ buzzer_on:
 ;
 ;********************************************************************************************** 
 buzzer_off:
+if DIL_ADuC832 = 1
+	clr	port_map.2
+else
 	lcall	lcdbuzoff
+endif
 	ret
 
 $INCLUDE (c:/aduc800_mideA.inc)
