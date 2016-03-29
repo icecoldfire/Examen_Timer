@@ -2,7 +2,6 @@ $NOLIST
 $nomod51
 $INCLUDE (c:/reg832.pdf)
 $LIST
-
 ;********************************************************************************************** 
 ; Stijn Goethals and Nele Annaert (C) 2016
 ; Main Program
@@ -1737,7 +1736,7 @@ buzzer_intr_exit:
 ;********************************************************************************************** 
 buzzer_on:
 if DIL_ADuC832 = 1
-	setb	port_map.2
+	clr	port_map.2
 else
 	lcall	lcdbuzon
 endif
@@ -1755,7 +1754,7 @@ endif
 ;********************************************************************************************** 
 buzzer_off:
 if DIL_ADuC832 = 1
-	clr	port_map.2
+	setb	port_map.2
 else
 	lcall	lcdbuzoff
 endif
