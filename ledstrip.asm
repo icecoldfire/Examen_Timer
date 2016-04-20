@@ -17,12 +17,12 @@ $LIST
 ;
 ;	Pleas set the wright options for compiling
 
-	DIL_ADuC832	SET	0 	; Set this if we use the DIL variant of the ADuC832
+	DIL_ADuC832	SET	1 	; Set this if we use the DIL variant of the ADuC832
 ;						If DIL is set buzzer on port_map.2 
 ;						else Buzzer on buzzer jumper
 ;
 	LCD		SET	0	; Set this if we use LCD and Buttons for comunication
-	USB		SET	0	; Set this if we use USB for comunication 
+	USB		SET	1	; Set this if we use USB for comunication 
 ;
 ;	YOU CAN CHANGE THE PORT IN OPTION port_map 
 ;
@@ -61,6 +61,9 @@ $LIST
 stack_init	equ	0b9h			; LED data will go until 0b7 for 30 led's
 led_count	equ	030d			; Give the number of APA102 led's in the strip max 48 for this 8 bit driver
 port_map	equ	p3			; Give the port we need to map 
+dataport	equ	1
+clkport		equ	2
+buzzerport	equ	0
 
 ;Defenition of the memory map:
 input_flag		bit	000h
@@ -324,7 +327,7 @@ user_input_LCD:
 		
 		mov	a,p3				; Get button (p3.7 - p3.4)
 		cpl	a				; Inversion for active high
-		swap	a				; Put data a in a.4 until a.0
+		swap	a				; Put data a in a.4 until aclkport
 		anl	a,#001h				; Clear upper 7 bits
 		jz	user_input_LCD_no_button		; button p3.4 not pressed so no user input
 
@@ -344,7 +347,7 @@ user_input_LCD_loop_1:
 		lcall	user_input_LCD_d_out
 		mov	a,p3				; Get button (p3.7 - p3.4)
 		cpl	a				; Inversion for active high
-		swap	a				; Put data a in a.4 until a.0
+		swap	a				; Put data a in a.4 until aclkport
 		anl	a,#002h				; Clear upper 6 bits and bit 0		
 		jz	user_input_LCD_loop_1		; button p3.5 not pressed so no user input
 		
@@ -361,7 +364,7 @@ user_input_LCD_loop_2:
 		lcall	user_input_LCD_d_out
 		mov	a,p3				; Get button (p3.7 - p3.4)
 		cpl	a				; Inversion for active high
-		swap	a				; Put data a in a.4 until a.0
+		swap	a				; Put data a in a.4 until aclkport
 		anl	a,#004h				; Clear upper 4 bits and lower 2 bits
 		jz	user_input_LCD_loop_2		; button p3.4 not pressed so no user input
 		
@@ -978,7 +981,7 @@ user_alarm_timer_intr:
 		push	psw
 		mov	a,timer0_count					; Get the interupt count
 		cjne	a,#21,user_alarm_timer_intr_reload 	; Do we have got almost a second? (counted until 0.98304.. sec?) 
-								; (16.777216Mhz/12)^-1=715,255737ns *2^16 = 0.046875s (per timer interupt)
+								; (16.777216Mhz/12)^-1=715,255737ns *2^16 = 0clkport46875s (per timer interupt)
 								;  
 		clr	tr0
 		mov	tl0,#0AAh				; 2^16 - 21845.333 instructions = 43691 instructions
@@ -1025,8 +1028,8 @@ user_alarm_timer_intr_reload:
 ; Necessary:
 ;	CLK on 16 Mhz for delay1s function
 ;	led_count defined for led_api_out
-;	port_map.0 for clk port (APA102)
-;	port_map.1 for data port (APA102)
+;	port_mapclkport for clk port (APA102)
+;	port_mapdataport for data port (APA102)
 ;	Makes use of class: APA102
 ;
 ; External functions: 
@@ -1154,8 +1157,8 @@ led_api_out_calc_mem:
 ;	 Uses register bank 3
 ;	 CLK on 16 Mhz for delay1s function
 ;	 led_count defined for APA102_out_all
-;	 port_map.0 for clk port (APA102)
-;	 port_map.1 for data port (APA102)
+;	 port_mapclkport for clk port (APA102)
+;	 port_mapdataport for data port (APA102)
 ;
 ; External functions: 
 ;	 Doesn't break acc
@@ -1197,7 +1200,7 @@ led_api_out_calc_mem:
 ;
 ;		 APA102_0: Sends a 0 bit to APA102
 ;		 APA102_1: Sends a 1 bit to APA102
-;		 APA102_init: Initialization of port_map.0 (clk) and port_map.1 (data)
+;		 APA102_init: Initialization of port_mapclkport (clk) and port_mapdataport (data)
 ;
 ; Internal functions:
 ;
@@ -1570,13 +1573,13 @@ APA102_led_frame:
 ; Output: sends a initalisation signal to the APA102
 ;
 ; Necessary:
-;	 port_map.0 for clk port (APA102)
-;	 port_map.1 for data port (APA102)
+;	 port_mapclkport for clk port (APA102)
+;	 port_mapdataport for data port (APA102)
 ;********************************************************************************************** 
 
 APA102_init:	
-		setb	port_map.0
-		clr	port_map.1
+		setb	port_map.clkport
+		clr	port_map.dataport
 		ret
 
 ;*********************************************************************************************
@@ -1592,8 +1595,8 @@ APA102_init:
 ;	 APA102_0_send_byte_0
 ;
 ; Necessary:
-;	 port_map.0 for clk port (APA102)
-;	 port_map.1 for data port (APA102)
+;	 port_map.clkport for clk port (APA102)
+;	 port_map.dataport for data port (APA102)
 ;**********************************************************************************************
 
 APA102_0_send_byte:
@@ -1603,9 +1606,9 @@ APA102_0_send_byte:
 
 APA102_0_send_byte_0:
 			rlc	a			;msb in c, cin lsb
-			mov	port_map.1,c		 	;hoge bit naar sd_dout 
-			clr	port_map.0				;negatieve flank van CLK puls genereren
-			setb	port_map.0			 	;positieve flank van CLK puls genereren
+			mov	port_map.dataport,c		 	;hoge bit naar sd_dout 
+			clr	port_map.clkport				;negatieve flank van CLK puls genereren
+			setb	port_map.clkport			 	;positieve flank van CLK puls genereren
 			djnz	b,APA102_0_send_byte_0	;hele byte getransfereerd? nee: nog een bit
 			pop	psw			;herstel registers
 			pop	b
@@ -1736,7 +1739,7 @@ buzzer_intr_exit:
 ;********************************************************************************************** 
 buzzer_on:
 if DIL_ADuC832 = 1
-	clr	port_map.2
+	clr	port_map.buzzerport
 else
 	lcall	lcdbuzon
 endif
@@ -1754,7 +1757,7 @@ endif
 ;********************************************************************************************** 
 buzzer_off:
 if DIL_ADuC832 = 1
-	setb	port_map.2
+	setb	port_map.buzzerport
 else
 	lcall	lcdbuzoff
 endif
